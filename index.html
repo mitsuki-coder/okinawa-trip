@@ -51,7 +51,7 @@
     }
 
     .btn-group { display: flex; gap: 8px; }
-    button {
+    button, label.btn {
       background: white;
       color: var(--primary-color);
       border: none;
@@ -62,7 +62,8 @@
       font-size: 0.85rem;
       transition: opacity 0.2s;
     }
-    button:hover { opacity: 0.9; }
+    button:hover, label.btn:hover { opacity: 0.9; }
+    input[type="file"] { display: none; }
 
     .container {
       display: grid;
@@ -165,9 +166,17 @@
 
   <header>
     <h2>🌺 沖縄旅行しおり & マップ</h2>
-    <div class="sync-status">
-      <span class="status-dot" id="statusDot"></span>
-      <span id="statusText">接続中...</span>
+    <div style="display: flex; align-items: center; gap: 15px;">
+      <div class="sync-status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">接続中...</span>
+      </div>
+      <div class="btn-group">
+        <label class="btn">
+          JSONファイルを読み込む
+          <input type="file" id="importFile" accept=".json" onchange="importData(event)">
+        </label>
+      </div>
     </div>
   </header>
 
@@ -228,7 +237,6 @@
       onValue 
     } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-    // 発行された Firebase 設定
     const firebaseConfig = {
       apiKey: "AIzaSyB4DwycXGEn82FBN8lK-rVQndH6aBd5xWU",
       authDomain: "okinawa-trip-1382f.firebaseapp.com",
@@ -239,12 +247,10 @@
       measurementId: "G-KHMT401B58"
     };
 
-    // Firebase 初期化
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
     const spotsRef = ref(db, "okinawa_spots");
 
-    // Leaflet 初期化
     const DEFAULT_LAT = 26.2124;
     const DEFAULT_LNG = 127.6809;
     
@@ -282,7 +288,7 @@
       return COLOR_CONFIG[dateStr] || COLOR_CONFIG["default"];
     }
 
-    // 🔥 Realtime Database からのリアルタイム同期受信 (onValue)
+    // リアルタイム同期受信
     onValue(spotsRef, (snapshot) => {
       currentSpots = [];
       const data = snapshot.val();
@@ -291,7 +297,6 @@
         Object.keys(data).forEach((key) => {
           currentSpots.push({ id: key, ...data[key] });
         });
-        // 時間順にソート
         currentSpots.sort((a, b) => new Date(a.time || 0) - new Date(b.time || 0));
       }
 
@@ -322,17 +327,45 @@
       }
 
       try {
-        await push(spotsRef, {
-          name,
-          time,
-          memo,
-          lat,
-          lng
-        });
+        await push(spotsRef, { name, time, memo, lat, lng });
         resetForm();
       } catch (e) {
         alert("追加に失敗しました: " + e.message);
       }
+    };
+
+    // 既存JSONファイルの読み込み & クラウド同期
+    window.importData = function(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        try {
+          const importedSpots = JSON.parse(e.target.result);
+          if (Array.isArray(importedSpots)) {
+            let count = 0;
+            for (const item of importedSpots) {
+              if (item.name) {
+                await push(spotsRef, {
+                  name: item.name || '',
+                  time: item.time || '',
+                  memo: item.memo || '',
+                  lat: parseFloat(item.lat) || DEFAULT_LAT,
+                  lng: parseFloat(item.lng) || DEFAULT_LNG
+                });
+                count++;
+              }
+            }
+            alert(`${count}件のデータを正常にクラウドへ取り込みました！`);
+          } else {
+            alert('不正なファイル形式です。配列形式のJSONを選択してください。');
+          }
+        } catch (err) {
+          alert('ファイルの読み込みに失敗しました。');
+        }
+      };
+      reader.readAsText(file);
     };
 
     // スポット削除
